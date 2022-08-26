@@ -5,6 +5,7 @@ package cmd
 
 import (
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 
 	"github.com/sirupsen/logrus"
@@ -12,8 +13,8 @@ import (
 )
 
 var (
-	debug    bool
-	runPprof bool
+	debug     bool
+	pprofAddr string
 
 	logF *os.File
 )
@@ -51,7 +52,7 @@ func init() {
 
 	// Cobra also supports local flags, which will only run
 	// when this action is called directly.
-	rootCmd.PersistentFlags().BoolVarP(&runPprof, "pprof", "p", false, "run with pprof mode at :8088")
+	rootCmd.PersistentFlags().StringVarP(&pprofAddr, "pprof", "p", "", "run with pprof,exmpale :8088")
 	rootCmd.PersistentPreRun = func(cmd *cobra.Command, args []string) {
 		var err error
 		if logFile != "" {
@@ -65,11 +66,11 @@ func init() {
 		if debug {
 			logrus.SetLevel(logrus.DebugLevel)
 		}
-		if !runPprof {
+		if pprofAddr == "" {
 			return
 		}
 		go func() {
-			http.ListenAndServe("0.0.0.0:8088", nil)
+			http.ListenAndServe(pprofAddr, nil)
 		}()
 
 	}

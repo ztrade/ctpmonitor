@@ -19,13 +19,13 @@ func NewMdSpi(cfg *Config) (spi *mdSpi, err error) {
 }
 
 func (s *mdSpi) OnFrontConnected() {
-	logrus.Println("OnFrontConnected")
+	logrus.Println("mdSpi OnFrontConnected")
 }
 func (s *mdSpi) OnFrontDisconnected(nReason int) {
-	logrus.Println("OnFrontDisconnected:", nReason)
+	logrus.Println("mdSpi OnFrontDisconnected:", nReason)
 }
 func (s *mdSpi) OnHeartBeatWarning(nTimeLapse int) {
-	logrus.Println("OnHeartBeatWarning:", nTimeLapse)
+	logrus.Println("mdSpi OnHeartBeatWarning:", nTimeLapse)
 }
 func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	// logrus.Infof("%d isLast: %t login success: %s, user %s, time: %s, systemName: %s, frontID: %s, session: %d", nRequestID, bIsLast, pRspUserLogin.TradingDay, pRspUserLogin.UserID, pRspUserLogin.SystemName, pRspUserLogin.FrontID, pRspUserLogin.SessionID)
