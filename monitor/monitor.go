@@ -9,26 +9,12 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/ztrade/ctp"
+	"github.com/ztrade/ctpmonitor/config"
 	"github.com/ztrade/ctpmonitor/util"
 )
 
-type Config struct {
-	TdServer string
-	MdServer string
-	BrokerID string
-	User     string
-	Password string
-	AppID    string
-	AuthCode string
-	DB       struct {
-		Type string
-		Uri  string
-	}
-	Taos string
-}
-
 type CTPMonitor struct {
-	cfg       *Config
+	cfg       *config.Config
 	tradeApi  *ctp.CThostFtdcTraderApi
 	marketApi *ctp.CThostFtdcMdApi
 	mdSpi     *mdSpi
@@ -43,7 +29,7 @@ type CTPMonitor struct {
 	mutex  sync.Mutex
 }
 
-func NewCTPMonitor(cfg *Config) (m *CTPMonitor) {
+func NewCTPMonitor(cfg *config.Config) (m *CTPMonitor) {
 	m = new(CTPMonitor)
 	m.cfg = cfg
 	m.isStop = make(chan int, 1)
@@ -101,6 +87,10 @@ func (m *CTPMonitor) reconnect() (err error) {
 	t := time.Now()
 	if t.Sub(m.lastRefreshSymbol) > time.Hour*24 || t.Day() != m.lastRefreshSymbol.Day() {
 		err = m.refreshSymbols()
+	}
+	m.mdSpi.connectCallback = func() {
+		logrus.Info("onFrontendConnected: watch all")
+		m.watchAll()
 	}
 
 	return

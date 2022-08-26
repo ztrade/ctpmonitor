@@ -5,14 +5,16 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/ztrade/ctp"
+	"github.com/ztrade/ctpmonitor/config"
 	"github.com/ztrade/ctpmonitor/model"
 )
 
 type mdSpi struct {
-	db *model.DB
+	db              *model.DB
+	connectCallback func()
 }
 
-func NewMdSpi(cfg *Config) (spi *mdSpi, err error) {
+func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
 	spi = new(mdSpi)
 	spi.db, err = model.NewDB(cfg.Taos)
 	return
@@ -20,6 +22,9 @@ func NewMdSpi(cfg *Config) (spi *mdSpi, err error) {
 
 func (s *mdSpi) OnFrontConnected() {
 	logrus.Println("mdSpi OnFrontConnected")
+	if s.connectCallback != nil {
+		s.connectCallback()
+	}
 }
 func (s *mdSpi) OnFrontDisconnected(nReason int) {
 	logrus.Println("mdSpi OnFrontDisconnected:", nReason)

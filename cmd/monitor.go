@@ -5,15 +5,23 @@ package cmd
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"os/signal"
 	"path/filepath"
 	"syscall"
 
+	"github.com/go-kratos/kratos/v2"
+	"github.com/go-kratos/kratos/v2/middleware/recovery"
+	"github.com/go-kratos/kratos/v2/transport/grpc"
+	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+	"github.com/ztrade/ctpmonitor/config"
 	"github.com/ztrade/ctpmonitor/monitor"
+	"github.com/ztrade/ctpmonitor/pb"
+	"github.com/ztrade/ctpmonitor/service"
 )
 
 var (
@@ -26,7 +34,8 @@ var monitorCmd = &cobra.Command{
 	Use:   "monitor",
 	Short: "monitor and record ctp market data",
 	Long:  `monitor and record ctp market data"`,
-	Run:   runMonitor,
+	// Run:   runMonitor,
+	Run: runService,
 }
 
 func init() {
@@ -60,9 +69,50 @@ func initConfig() {
 	}
 }
 
+func runService(cmd *cobra.Command, args []string) {
+	initConfig()
+	var cfg config.Config
+	err := viper.Unmarshal(&cfg)
+	if err != nil {
+		fmt.Println("error:", err.Error())
+		return
+	}
+
+	s, err := service.NewCtpService(&cfg)
+	if err != nil {
+		fmt.Println("error:", err.Error())
+		return
+	}
+	httpSrv := http.NewServer(
+		http.Address(":8000"),
+		http.Middleware(
+			recovery.Recovery(),
+		),
+	)
+	grpcSrv := grpc.NewServer(
+		grpc.Address(":9000"),
+		grpc.Middleware(
+			recovery.Recovery(),
+		),
+	)
+	pb.RegisterCtpHTTPServer(httpSrv, s)
+	pb.RegisterCtpServer(grpcSrv, s)
+	app := kratos.New(
+		kratos.Name(""),
+		kratos.Server(
+			httpSrv,
+			grpcSrv,
+		),
+	)
+
+	if err := app.Run(); err != nil {
+		log.Fatal(err)
+	}
+}
+
 func runMonitor(cmd *cobra.Command, args []string) {
 	initConfig()
-	var cfg monitor.Config
+	var cfg config.Config
 	err := viper.Unmarshal(&cfg)
 	if err != nil {
 		fmt.Println("error:", err.Error())

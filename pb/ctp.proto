@@ -1,0 +1,95 @@
+syntax = "proto3";
+package ctpmonitor.pb;
+option go_package = "ctpmonitor/pb";
+
+import "google/api/annotations.proto";
+
+message RangeReq{
+  int64 start = 1;
+  int64 end = 2;
+  string symbol = 3;
+}
+
+message KlineReq{
+  int64 start = 1;
+  int64 end = 2;
+  string symbol = 3;
+  string bin = 4;
+}
+
+message KlineData{
+  int64 start = 1;
+  double open = 2;
+  double high = 3;
+  double close = 4;
+  double low = 5;
+  uint64 volume = 6;
+  double turnover = 7;
+}
+
+message KlineResp{
+  repeated KlineData data = 1;
+}
+
+message MarketData{
+  int64 Ts = 1;
+  string TradingDay = 2;
+  string InstrumentID = 3;
+  string ExchangeID = 4;
+  string ExchangeInstID = 5;
+  string ActionDay = 6;
+  double LastPrice = 7;
+  double PreSettlementPrice = 8;
+  double PreClosePrice = 9;
+  double PreOpenInterest = 10;
+  double OpenPrice = 11;
+  double HighestPrice =12;
+  double LowestPrice =13;
+  int64 Volume =14;
+  double Turnover           =15;
+  double OpenInterest       =16;
+  double ClosePrice         =17;
+  double SettlementPrice    =18;
+  double UpperLimitPrice    =19;
+  double LowerLimitPrice    =20;
+  double PreDelta           =21;
+  double CurrDelta          =22;
+  double BidPrice1          =23;
+  int64	BidVolume1         =24;
+  double AskPrice1          =25;
+  int64	AskVolume1         =26;
+  double BidPrice2 = 27;
+  int64 BidVolume2=28;
+  double AskPrice2= 29;
+  int64 AskVolume2 = 30;
+  double BidPrice3 = 31;
+  int64	BidVolume3 = 32;
+  double AskPrice3 = 33;
+  int64 AskVolume3 = 34;
+  double BidPrice4 = 35;
+  int64	BidVolume4 = 36;
+  double AskPrice4 = 37;
+  int64 AskVolume4 = 38;
+  double BidPrice5 = 39;
+  int64 BidVolume5=40;
+  double AskPrice5 = 41;
+  int64 AskVolume5 = 42;
+  double AveragePrice = 43;
+}
+
+message MarketDatas{
+  repeated MarketData data = 1;
+}
+
+service Ctp{
+  rpc GetKline(KlineReq) returns (KlineResp){
+    option (google.api.http) = {
+      get: "/kline",
+    };
+  }
+  rpc GetTick(RangeReq) returns (MarketDatas){
+    option (google.api.http) = {
+      get: "/tick",
+    };
+  }
+};
