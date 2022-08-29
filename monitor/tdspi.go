@@ -12,10 +12,12 @@ import (
 
 type TdSpi struct {
 	ctp.CThostFtdcTraderSpiBase
-	hasAuth    bool
-	hasLogin   bool
-	hasSymbols bool
-	symbols    map[string]*ctp.CThostFtdcInstrumentField
+	hasAuth         bool
+	hasLogin        bool
+	hasSymbols      bool
+	symbols         map[string]*ctp.CThostFtdcInstrumentField
+	connectCallback func()
+	authCallback    func()
 }
 
 func NewTdSpi() *TdSpi {
@@ -25,6 +27,17 @@ func NewTdSpi() *TdSpi {
 }
 func (s *TdSpi) GetSymbols() (symbols map[string]*ctp.CThostFtdcInstrumentField) {
 	return s.symbols
+}
+
+func (b *TdSpi) OnFrontConnected() {
+	if b.connectCallback != nil {
+		b.connectCallback()
+	}
+	logrus.Info("TdSpi OnFrontConnected")
+}
+func (b *TdSpi) OnFrontDisconnected(nReason int) {
+	logrus.Info("TdSpi OnFrontDisconnected")
+
 }
 
 func (s *TdSpi) WaitSymbols(ctx context.Context) (err error) {
@@ -46,7 +59,7 @@ func (s *TdSpi) WaitAuth(ctx context.Context) (err error) {
 Out:
 	for {
 		select {
-		case _ = <-ctx.Done():
+		case <-ctx.Done():
 			return errors.New("deadline")
 		default:
 			if s.hasAuth {
@@ -65,6 +78,9 @@ func (s *TdSpi) OnRspAuthenticate(pRspAuthenticateField *ctp.CThostFtdcRspAuthen
 	buf, _ := json.Marshal(pRspAuthenticateField)
 	logrus.Info("OnRspAuthenticate", string(buf))
 	s.hasAuth = true
+	if s.authCallback != nil {
+		s.authCallback()
+	}
 	return
 }
 func (s *TdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {

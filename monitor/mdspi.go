@@ -12,6 +12,7 @@ import (
 type mdSpi struct {
 	db              *model.DB
 	connectCallback func()
+	loginCallback   func()
 }
 
 func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
@@ -34,6 +35,10 @@ func (s *mdSpi) OnHeartBeatWarning(nTimeLapse int) {
 }
 func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	// logrus.Infof("%d isLast: %t login success: %s, user %s, time: %s, systemName: %s, frontID: %s, session: %d", nRequestID, bIsLast, pRspUserLogin.TradingDay, pRspUserLogin.UserID, pRspUserLogin.SystemName, pRspUserLogin.FrontID, pRspUserLogin.SessionID)
+
+	if pRspInfo.ErrorID == 0 && s.loginCallback != nil {
+		s.loginCallback()
+	}
 	logrus.Infof("login error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspUserLogout(pUserLogout *ctp.CThostFtdcUserLogoutField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
