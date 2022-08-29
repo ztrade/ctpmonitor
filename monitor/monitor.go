@@ -90,6 +90,13 @@ func (m *CTPMonitor) reconnect() (err error) {
 	}
 	m.mdSpi.connectCallback = func() {
 		logrus.Info("onFrontendConnected: watch all")
+		t := time.Now()
+		if t.Sub(m.lastRefreshSymbol) > time.Hour*24 || t.Day() != m.lastRefreshSymbol.Day() {
+			err = m.refreshSymbols()
+			if err != nil {
+				logrus.Errorf("refresh Symbol failed: %s", err.Error())
+			}
+		}
 		m.watchAll()
 	}
 
@@ -97,7 +104,7 @@ func (m *CTPMonitor) reconnect() (err error) {
 }
 
 func (m *CTPMonitor) connectTdApi() (err error) {
-	tdApi := ctp.TdCreateFtdcTraderApi("")
+	tdApi := ctp.TdCreateFtdcTraderApi("td")
 	tdApi.RegisterSpi(m.tdSpi)
 	tdApi.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.TdServer))
 	tdApi.Init()
@@ -122,7 +129,7 @@ func (m *CTPMonitor) connectTdApi() (err error) {
 }
 
 func (m *CTPMonitor) connectMdApi() (err error) {
-	api := ctp.MdCreateFtdcMdApi("", false, false)
+	api := ctp.MdCreateFtdcMdApi("md", false, false)
 	api.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.MdServer))
 	api.RegisterSpi(m.mdSpi)
 	api.Init()

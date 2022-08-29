@@ -34,8 +34,7 @@ var monitorCmd = &cobra.Command{
 	Use:   "monitor",
 	Short: "monitor and record ctp market data",
 	Long:  `monitor and record ctp market data"`,
-	// Run:   runMonitor,
-	Run: runService,
+	Run:   runMonitor,
 }
 
 func init() {
@@ -124,6 +123,7 @@ func runMonitor(cmd *cobra.Command, args []string) {
 		fmt.Println("start error:", err.Error())
 		return
 	}
+	go runService(cmd, args)
 	sigs := make(chan os.Signal, 1)
 	signal.Notify(sigs, syscall.SIGINT)
 	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
