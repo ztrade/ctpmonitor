@@ -1,5 +1,9 @@
 package config
 
+var (
+	MainConfig Config
+)
+
 type Config struct {
 	TdServer string
 	MdServer string
@@ -13,4 +17,6 @@ type Config struct {
 		Uri  string
 	}
 	Taos string
+	Http string
+	Grpc string
 }

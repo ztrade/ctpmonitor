@@ -13,6 +13,7 @@ import (
 
 	"github.com/go-kratos/kratos/v2"
 	"github.com/go-kratos/kratos/v2/middleware/recovery"
+	"github.com/go-kratos/kratos/v2/transport"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	"github.com/go-kratos/kratos/v2/transport/http"
 	"github.com/sirupsen/logrus"
@@ -69,38 +70,41 @@ func initConfig() {
 }
 
 func runService(cmd *cobra.Command, args []string) {
-	initConfig()
-	var cfg config.Config
-	err := viper.Unmarshal(&cfg)
+	cfg := &config.MainConfig
+	var servers []transport.Server
+	s, err := service.NewCtpService(cfg)
 	if err != nil {
 		fmt.Println("error:", err.Error())
 		return
 	}
-
-	s, err := service.NewCtpService(&cfg)
-	if err != nil {
-		fmt.Println("error:", err.Error())
+	if cfg.Http != "" {
+		httpSrv := http.NewServer(
+			http.Address(cfg.Http),
+			http.Middleware(
+				recovery.Recovery(),
+			),
+		)
+		pb.RegisterCtpHTTPServer(httpSrv, s)
+		servers = append(servers, httpSrv)
+	}
+	if cfg.Grpc != "" {
+		grpcSrv := grpc.NewServer(
+			grpc.Address(cfg.Grpc),
+			grpc.Middleware(
+				recovery.Recovery(),
+			),
+		)
+		pb.RegisterCtpServer(grpcSrv, s)
+		servers = append(servers, grpcSrv)
+	}
+	if len(servers) == 0 {
+		fmt.Println("no servers need run")
 		return
 	}
-	httpSrv := http.NewServer(
-		http.Address(":8000"),
-		http.Middleware(
-			recovery.Recovery(),
-		),
-	)
-	grpcSrv := grpc.NewServer(
-		grpc.Address(":9000"),
-		grpc.Middleware(
-			recovery.Recovery(),
-		),
-	)
-	pb.RegisterCtpHTTPServer(httpSrv, s)
-	pb.RegisterCtpServer(grpcSrv, s)
 	app := kratos.New(
 		kratos.Name(""),
 		kratos.Server(
-			httpSrv,
-			grpcSrv,
+			servers...,
 		),
 	)
 
@@ -111,13 +115,14 @@ func runService(cmd *cobra.Command, args []string) {
 
 func runMonitor(cmd *cobra.Command, args []string) {
 	initConfig()
-	var cfg config.Config
-	err := viper.Unmarshal(&cfg)
+
+	err := viper.Unmarshal(&config.MainConfig)
 	if err != nil {
 		fmt.Println("error:", err.Error())
 		return
 	}
-	m := monitor.NewCTPMonitor(&cfg)
+	cfg := &config.MainConfig
+	m := monitor.NewCTPMonitor(cfg)
 	err = m.Start()
 	if err != nil {
 		fmt.Println("start error:", err.Error())
