@@ -46,11 +46,14 @@ func (m *CTPMonitor) Start() (err error) {
 
 func (m *CTPMonitor) Stop() (err error) {
 	close(m.isStop)
-	if m.tradeApi != nil {
-		m.tradeApi.Release()
-	}
+	m.mdSpi.Close()
+	// TODO: block?
 	if m.marketApi != nil {
 		m.marketApi.Release()
+	}
+	// TODO: block?
+	if m.tradeApi != nil {
+		m.tradeApi.Release()
 	}
 	return
 }
