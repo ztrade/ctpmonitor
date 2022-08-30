@@ -10,28 +10,31 @@ import (
 )
 
 type mdSpi struct {
-	db              *model.DB
-	connectCallback func()
-	loginCallback   func()
+	db                *model.DB
+	connectCallback   func()
+	loginCallback     func()
+	loginFailCallback func()
+	l                 *logrus.Entry
 }
 
 func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
 	spi = new(mdSpi)
+	spi.l = logrus.WithField("module", "mdSpi")
 	spi.db, err = model.NewDB(cfg.Taos)
 	return
 }
 
 func (s *mdSpi) OnFrontConnected() {
-	logrus.Println("mdSpi OnFrontConnected")
+	s.l.Println("OnFrontConnected")
 	if s.connectCallback != nil {
 		s.connectCallback()
 	}
 }
 func (s *mdSpi) OnFrontDisconnected(nReason int) {
-	logrus.Println("mdSpi OnFrontDisconnected:", nReason)
+	s.l.Println("OnFrontDisconnected:", nReason)
 }
 func (s *mdSpi) OnHeartBeatWarning(nTimeLapse int) {
-	logrus.Println("mdSpi OnHeartBeatWarning:", nTimeLapse)
+	s.l.Println("OnHeartBeatWarning:", nTimeLapse)
 }
 func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	// logrus.Infof("%d isLast: %t login success: %s, user %s, time: %s, systemName: %s, frontID: %s, session: %d", nRequestID, bIsLast, pRspUserLogin.TradingDay, pRspUserLogin.UserID, pRspUserLogin.SystemName, pRspUserLogin.FrontID, pRspUserLogin.SessionID)
@@ -39,52 +42,55 @@ func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, p
 	if pRspInfo.ErrorID == 0 && s.loginCallback != nil {
 		s.loginCallback()
 	}
-	logrus.Infof("login error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	if pRspInfo.ErrorID != 0 && s.loginFailCallback != nil {
+		s.loginFailCallback()
+	}
+	s.l.Infof("login error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspUserLogout(pUserLogout *ctp.CThostFtdcUserLogoutField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	buf, _ := json.Marshal(pUserLogout)
-	logrus.Infof("%d isLast: %t login success: %s", nRequestID, bIsLast, string(buf))
-	logrus.Infof("login error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Infof("%d isLast: %t login success: %s", nRequestID, bIsLast, string(buf))
+	s.l.Infof("logout error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspQryMulticastInstrument(pMulticastInstrument *ctp.CThostFtdcMulticastInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	buf, _ := json.Marshal(pMulticastInstrument)
-	logrus.Infof("%d isLast: %t logout success: %s", nRequestID, bIsLast, string(buf))
-	logrus.Infof("logout error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Infof("%d isLast: %t logout success: %s", nRequestID, bIsLast, string(buf))
+	s.l.Infof("OnRspQryMulticastInstrument error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspError(pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	logrus.Warnf("%d resp error: %t:ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Warnf("%d resp error: %t:ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspSubMarketData(pSpecificInstrument *ctp.CThostFtdcSpecificInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	logrus.Info("onSubMarketData:", pSpecificInstrument.InstrumentID)
+	s.l.Info("onSubMarketData:", pSpecificInstrument.InstrumentID)
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		logrus.Warnf("%d onSubMarketData: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		s.l.Warnf("%d onSubMarketData: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 	}
 }
 func (s *mdSpi) OnRspUnSubMarketData(pSpecificInstrument *ctp.CThostFtdcSpecificInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	logrus.Info("onUnSubMarketData:", pSpecificInstrument.InstrumentID)
-	logrus.Warnf("%d onUnSubMarketData: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Info("onUnSubMarketData:", pSpecificInstrument.InstrumentID)
+	s.l.Warnf("%d onUnSubMarketData: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspSubForQuoteRsp(pSpecificInstrument *ctp.CThostFtdcSpecificInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	logrus.Info("onSubForQuoteRsp:", pSpecificInstrument.InstrumentID)
-	logrus.Warnf("%d onSubForQuoteRsp: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Info("onSubForQuoteRsp:", pSpecificInstrument.InstrumentID)
+	s.l.Warnf("%d onSubForQuoteRsp: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRspUnSubForQuoteRsp(pSpecificInstrument *ctp.CThostFtdcSpecificInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	logrus.Info("onUnSubForQuoteRsp:", pSpecificInstrument.InstrumentID)
-	logrus.Warnf("%d onUnSubForQuoteRsp: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Info("onUnSubForQuoteRsp:", pSpecificInstrument.InstrumentID)
+	s.l.Warnf("%d onUnSubForQuoteRsp: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
 func (s *mdSpi) OnRtnDepthMarketData(pDepthMarketData *ctp.CThostFtdcDepthMarketDataField) {
 	if pDepthMarketData == nil {
-		logrus.Errorf("marketdata is nil")
+		s.l.Error("marketdata is nil")
 		return
 	}
 	err := s.db.AddMarketData(pDepthMarketData)
 	if err != nil {
-		logrus.Errorf("add marketdata failed: %s", err.Error())
+		s.l.Errorf("add marketdata failed: %s", err.Error())
 	}
 }
 func (s *mdSpi) OnRtnForQuoteRsp(pForQuoteRsp *ctp.CThostFtdcForQuoteRspField) {
 	buf, _ := json.Marshal(pForQuoteRsp)
-	logrus.Info("onForQuoteRsp:", string(buf))
+	s.l.Info("onForQuoteRsp:", string(buf))
 }
 
 func (s *mdSpi) Close() error {

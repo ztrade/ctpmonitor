@@ -3,6 +3,7 @@ package monitor
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,6 +34,8 @@ func NewCTPMonitor(cfg *config.Config) (m *CTPMonitor) {
 	m = new(CTPMonitor)
 	m.cfg = cfg
 	m.isStop = make(chan int, 1)
+	os.MkdirAll("md", os.ModeDir)
+	os.MkdirAll("td", os.ModeDir)
 	return
 }
 
@@ -91,14 +94,30 @@ func (m *CTPMonitor) reconnect() (err error) {
 
 func (m *CTPMonitor) connectTdApi() (err error) {
 	tdApi := ctp.TdCreateFtdcTraderApi("td")
-	m.tdSpi.connectCallback = func() {
-		logrus.Info("tdSpi connect: Auth")
+	auth := func() {
+		logrus.Info("tdSpi Auth")
 		tdApi.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: m.cfg.BrokerID, UserID: m.cfg.User, UserProductInfo: "", AuthCode: m.cfg.AuthCode, AppID: m.cfg.AppID}, 0)
 	}
-	m.tdSpi.authCallback = func() {
-		logrus.Info("tdSpi authCallback: login")
+
+	login := func() {
+		logrus.Info("tdSpi login")
 		tdApi.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: m.cfg.User, BrokerID: m.cfg.BrokerID, Password: m.cfg.Password}, 0)
 	}
+	m.tdSpi.connectCallback = auth
+	m.tdSpi.authCallback = login
+	m.tdSpi.authFailCallback = func() {
+		go func() {
+			time.Sleep(time.Second * 10)
+			auth()
+		}()
+	}
+	m.tdSpi.loginFailCallback = func() {
+		go func() {
+			time.Sleep(time.Second * 10)
+			login()
+		}()
+	}
+
 	tdApi.RegisterSpi(m.tdSpi)
 	tdApi.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.TdServer))
 	tdApi.Init()
@@ -115,11 +134,11 @@ func (m *CTPMonitor) connectTdApi() (err error) {
 
 func (m *CTPMonitor) connectMdApi() (err error) {
 	api := ctp.MdCreateFtdcMdApi("md", false, false)
-	m.mdSpi.connectCallback = func() {
+	login := func() {
 		logrus.Info("mdSpi onFrontendConnected: login")
 		api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: m.cfg.User, BrokerID: m.cfg.BrokerID, Password: m.cfg.Password}, 0)
 	}
-	m.mdSpi.loginCallback = func() {
+	watch := func() {
 		logrus.Info("mdSpi onLogin: watchAll")
 		err = m.refreshSymbols()
 		if err != nil {
@@ -127,6 +146,14 @@ func (m *CTPMonitor) connectMdApi() (err error) {
 		}
 		m.watchAll()
 	}
+	m.mdSpi.connectCallback = login
+	m.mdSpi.loginFailCallback = func() {
+		go func() {
+			time.Sleep(time.Second * 10)
+			login()
+		}()
+	}
+	m.mdSpi.loginCallback = watch
 	api.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.MdServer))
 	api.RegisterSpi(m.mdSpi)
 	api.Init()

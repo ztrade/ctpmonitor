@@ -12,31 +12,35 @@ import (
 
 type TdSpi struct {
 	ctp.CThostFtdcTraderSpiBase
-	hasAuth         bool
-	hasLogin        bool
-	hasSymbols      bool
-	symbols         map[string]*ctp.CThostFtdcInstrumentField
-	connectCallback func()
-	authCallback    func()
+	hasAuth           bool
+	hasLogin          bool
+	hasSymbols        bool
+	symbols           map[string]*ctp.CThostFtdcInstrumentField
+	connectCallback   func()
+	authCallback      func()
+	authFailCallback  func()
+	loginFailCallback func()
+	l                 *logrus.Entry
 }
 
 func NewTdSpi() *TdSpi {
 	td := new(TdSpi)
 	td.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
+	td.l = logrus.WithField("module", "tdSpi")
 	return td
 }
 func (s *TdSpi) GetSymbols() (symbols map[string]*ctp.CThostFtdcInstrumentField) {
 	return s.symbols
 }
 
-func (b *TdSpi) OnFrontConnected() {
-	if b.connectCallback != nil {
-		b.connectCallback()
+func (s *TdSpi) OnFrontConnected() {
+	if s.connectCallback != nil {
+		s.connectCallback()
 	}
-	logrus.Info("TdSpi OnFrontConnected")
+	s.l.Info("TdSpi OnFrontConnected")
 }
-func (b *TdSpi) OnFrontDisconnected(nReason int) {
-	logrus.Info("TdSpi OnFrontDisconnected")
+func (s *TdSpi) OnFrontDisconnected(nReason int) {
+	s.l.Info("TdSpi OnFrontDisconnected")
 
 }
 
@@ -44,7 +48,7 @@ func (s *TdSpi) WaitSymbols(ctx context.Context) (err error) {
 Out:
 	for {
 		select {
-		case _ = <-ctx.Done():
+		case <-ctx.Done():
 			return errors.New("deadline")
 		default:
 			if s.hasSymbols {
@@ -72,25 +76,31 @@ Out:
 }
 
 func (s *TdSpi) OnRspAuthenticate(pRspAuthenticateField *ctp.CThostFtdcRspAuthenticateField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		logrus.Error("OnRspAuthenticate error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
-	}
 	buf, _ := json.Marshal(pRspAuthenticateField)
-	logrus.Info("OnRspAuthenticate", string(buf))
+	s.l.Info("OnRspAuthenticate", string(buf))
+	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
+		s.l.Errorf("OnRspAuthenticate error %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		if s.authFailCallback != nil {
+			s.authFailCallback()
+		}
+		return
+	}
 	s.hasAuth = true
 	if s.authCallback != nil {
 		s.authCallback()
 	}
-	return
 }
 func (s *TdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
-	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		logrus.Error("OnRspUserLogin error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
-	}
 	buf, _ := json.Marshal(pRspUserLogin)
-	logrus.Info("OnRspUserLogin", string(buf))
+	s.l.Info("OnRspUserLogin", string(buf))
+	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
+		s.l.Errorf("OnRspUserLogin error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		if s.loginFailCallback != nil {
+			s.loginFailCallback()
+		}
+		return
+	}
 	s.hasLogin = true
-	return
 }
 func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumentStatusField) {
 	// buf, _ := json.Marshal(pInstrumentStatus)
@@ -104,10 +114,10 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 		}
 	}()
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		logrus.Error("OnRspQryInstrument error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		s.l.Error("OnRspQryInstrument error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 	}
 	if pInstrument == nil {
-		logrus.Warn("pInstrument is null")
+		s.l.Warn("pInstrument is null")
 		return
 	}
 	if pInstrument.ProductClass != '1' {
@@ -120,7 +130,7 @@ func (s *TdSpi) WaitLogin(ctx context.Context) (err error) {
 Out:
 	for {
 		select {
-		case _ = <-ctx.Done():
+		case <-ctx.Done():
 			return errors.New("deadline")
 		default:
 			if s.hasLogin {
