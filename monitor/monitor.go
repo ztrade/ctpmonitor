@@ -41,10 +41,13 @@ func (m *CTPMonitor) Start() (err error) {
 func (m *CTPMonitor) Stop() (err error) {
 	close(m.isStop)
 	logrus.Info("close mdSpi")
-	m.mdSpi.Close()
+	if m.mdSpi != nil {
+		m.mdSpi.Close()
+	}
 	logrus.Info("close mdSpi success")
-	// TODO: block?
-	m.tdSpi.Close()
+	if m.tdSpi != nil {
+		m.tdSpi.Close()
+	}
 	logrus.Info("Stop success")
 	return
 }
@@ -131,6 +134,7 @@ Out:
 				break
 			}
 		}
+		needConnect = true
 		if !needConnect {
 			logrus.Println("wait time")
 			time.Sleep(time.Minute)

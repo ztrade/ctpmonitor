@@ -100,9 +100,12 @@ func (s *TdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, p
 
 		return
 	}
-	n := s.api.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
-	s.l.Info("TdSpi OnRspUserLogin, ReqQryInstrument:", n)
+	go func() {
+		n := s.api.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
+		s.l.Info("TdSpi OnRspUserLogin, ReqQryInstrument:", n)
+	}()
 }
+
 func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumentStatusField) {
 	// buf, _ := json.Marshal(pInstrumentStatus)
 	// fmt.Println("OnRtnInstrumentStatus:", string(buf))
@@ -114,7 +117,7 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 			s.hasSymbols.Store(true)
 		}
 	}()
-	// s.l.Info("OnRspQryInstrument:", pInstrument)
+	s.l.Info("OnRspQryInstrument:", pInstrument)
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
 		s.l.Error("OnRspQryInstrument error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 	}
@@ -128,6 +131,7 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 	s.symbols[pInstrument.InstrumentID] = pInstrument
 
 }
+
 func (s *TdSpi) Close() {
 	api := s.api
 	s.api = nil

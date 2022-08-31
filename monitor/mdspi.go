@@ -107,10 +107,12 @@ func (s *mdSpi) OnRtnDepthMarketData(pDepthMarketData *ctp.CThostFtdcDepthMarket
 		s.l.Error("marketdata is nil")
 		return
 	}
-	// err := s.db.AddMarketData(pDepthMarketData)
-	// if err != nil {
-	// 	s.l.Errorf("add marketdata failed: %s", err.Error())
-	// }
+	// buf, _ := json.Marshal(pDepthMarketData)
+	// fmt.Println(string(buf))
+	err := s.db.AddMarketData(pDepthMarketData)
+	if err != nil {
+		s.l.Errorf("add marketdata failed: %s", err.Error())
+	}
 }
 func (s *mdSpi) OnRtnForQuoteRsp(pForQuoteRsp *ctp.CThostFtdcForQuoteRspField) {
 	buf, _ := json.Marshal(pForQuoteRsp)
