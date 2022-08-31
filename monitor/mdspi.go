@@ -1,7 +1,10 @@
 package monitor
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/ztrade/ctp"
@@ -10,48 +13,69 @@ import (
 )
 
 type mdSpi struct {
-	db                *model.DB
-	connectCallback   func()
-	loginCallback     func()
-	loginFailCallback func()
-	l                 *logrus.Entry
+	db *model.DB
+
+	l   *logrus.Entry
+	api *ctp.CThostFtdcMdApi
+	cfg *config.Config
+
+	loginCallback func(*ctp.CThostFtdcMdApi)
 }
 
 func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
 	spi = new(mdSpi)
+	spi.cfg = cfg
 	spi.l = logrus.WithField("module", "mdSpi")
 	spi.db, err = model.NewDB(cfg.Taos)
 	return
 }
 
-func (s *mdSpi) OnFrontConnected() {
-	s.l.Println("OnFrontConnected")
-	if s.connectCallback != nil {
-		s.connectCallback()
-	}
+func (s *mdSpi) Connect(ctx context.Context) (err error) {
+	s.api = ctp.MdCreateFtdcMdApi("md", false, false)
+	s.api.RegisterFront(fmt.Sprintf("tcp://%s", s.cfg.MdServer))
+	s.api.RegisterSpi(s)
+	s.api.Init()
+	return
 }
+
+func (s *mdSpi) OnFrontConnected() {
+	n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
+	s.l.Println("OnFrontConnected:", n)
+}
+
 func (s *mdSpi) OnFrontDisconnected(nReason int) {
 	s.l.Println("OnFrontDisconnected:", nReason)
 }
+
 func (s *mdSpi) OnHeartBeatWarning(nTimeLapse int) {
 	s.l.Println("OnHeartBeatWarning:", nTimeLapse)
 }
+
 func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	// logrus.Infof("%d isLast: %t login success: %s, user %s, time: %s, systemName: %s, frontID: %s, session: %d", nRequestID, bIsLast, pRspUserLogin.TradingDay, pRspUserLogin.UserID, pRspUserLogin.SystemName, pRspUserLogin.FrontID, pRspUserLogin.SessionID)
 
-	if pRspInfo.ErrorID == 0 && s.loginCallback != nil {
-		s.loginCallback()
+	s.l.Infof("login: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	if pRspInfo.ErrorID == 0 {
+		if s.loginCallback != nil {
+			s.loginCallback(s.api)
+		}
+	} else {
+		s.l.Println("OnRspUserLogin fail, retry after 10s")
+		go func() {
+			time.Sleep(10 * time.Second)
+			n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
+			s.l.Info("OnRspUserLogin fail, do ReqUserLogin:", n)
+		}()
 	}
-	if pRspInfo.ErrorID != 0 && s.loginFailCallback != nil {
-		s.loginFailCallback()
-	}
-	s.l.Infof("login error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+
 }
+
 func (s *mdSpi) OnRspUserLogout(pUserLogout *ctp.CThostFtdcUserLogoutField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	buf, _ := json.Marshal(pUserLogout)
 	s.l.Infof("%d isLast: %t login success: %s", nRequestID, bIsLast, string(buf))
 	s.l.Infof("logout error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 }
+
 func (s *mdSpi) OnRspQryMulticastInstrument(pMulticastInstrument *ctp.CThostFtdcMulticastInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	buf, _ := json.Marshal(pMulticastInstrument)
 	s.l.Infof("%d isLast: %t logout success: %s", nRequestID, bIsLast, string(buf))
@@ -83,10 +107,10 @@ func (s *mdSpi) OnRtnDepthMarketData(pDepthMarketData *ctp.CThostFtdcDepthMarket
 		s.l.Error("marketdata is nil")
 		return
 	}
-	err := s.db.AddMarketData(pDepthMarketData)
-	if err != nil {
-		s.l.Errorf("add marketdata failed: %s", err.Error())
-	}
+	// err := s.db.AddMarketData(pDepthMarketData)
+	// if err != nil {
+	// 	s.l.Errorf("add marketdata failed: %s", err.Error())
+	// }
 }
 func (s *mdSpi) OnRtnForQuoteRsp(pForQuoteRsp *ctp.CThostFtdcForQuoteRspField) {
 	buf, _ := json.Marshal(pForQuoteRsp)
@@ -94,5 +118,11 @@ func (s *mdSpi) OnRtnForQuoteRsp(pForQuoteRsp *ctp.CThostFtdcForQuoteRspField) {
 }
 
 func (s *mdSpi) Close() error {
+	api := s.api
+	s.api = nil
+	if api != nil {
+		api.Release()
+		s.l.Info("release marketApi success")
+	}
 	return s.db.Close()
 }

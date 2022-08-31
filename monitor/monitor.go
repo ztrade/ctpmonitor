@@ -2,9 +2,7 @@ package monitor
 
 import (
 	"context"
-	"fmt"
 	"os"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -15,27 +13,23 @@ import (
 )
 
 type CTPMonitor struct {
-	cfg       *config.Config
-	tradeApi  *ctp.CThostFtdcTraderApi
-	marketApi *ctp.CThostFtdcMdApi
-	mdSpi     *mdSpi
-	tdSpi     *TdSpi
+	cfg   *config.Config
+	mdSpi *mdSpi
+	tdSpi *TdSpi
 
 	isConnect atomic.Bool
 
-	symbols           map[string]*ctp.CThostFtdcInstrumentField
-	lastRefreshSymbol time.Time
+	symbols map[string]*ctp.CThostFtdcInstrumentField
 
 	isStop chan int
-	mutex  sync.Mutex
 }
 
 func NewCTPMonitor(cfg *config.Config) (m *CTPMonitor) {
 	m = new(CTPMonitor)
 	m.cfg = cfg
 	m.isStop = make(chan int, 1)
-	os.MkdirAll("md", os.ModeDir)
-	os.MkdirAll("td", os.ModeDir)
+	os.MkdirAll("md", os.ModePerm)
+	os.MkdirAll("td", os.ModePerm)
 	return
 }
 
@@ -46,182 +40,63 @@ func (m *CTPMonitor) Start() (err error) {
 
 func (m *CTPMonitor) Stop() (err error) {
 	close(m.isStop)
+	logrus.Info("close mdSpi")
 	m.mdSpi.Close()
+	logrus.Info("close mdSpi success")
 	// TODO: block?
-	if m.marketApi != nil {
-		m.marketApi.Release()
-	}
-	// TODO: block?
-	if m.tradeApi != nil {
-		m.tradeApi.Release()
-	}
+	m.tdSpi.Close()
+	logrus.Info("Stop success")
 	return
 }
 
 func (m *CTPMonitor) reconnect() (err error) {
-	if m.tradeApi != nil {
-		m.tradeApi.Release()
+	if m.tdSpi != nil {
+		m.tdSpi.Close()
+		m.tdSpi = nil
 	}
-	if m.marketApi != nil {
-		m.marketApi.Release()
+	if m.mdSpi != nil {
+		m.mdSpi.Close()
+		m.tdSpi = nil
 	}
-	m.tdSpi = NewTdSpi()
-	m.mdSpi, err = NewMdSpi(m.cfg)
-	if err != nil {
-		return
-	}
-	err = m.connectTdApi()
-	if err != nil {
-		return
-	}
-
-	err = m.connectMdApi()
-	if err != nil {
-		return
-	}
-	go func() {
-		defer m.isConnect.Store(false)
-		m.marketApi.Join()
-		logrus.Info("marketApi finished")
-	}()
-
-	m.isConnect.Store(true)
-	go func() {
-		defer m.isConnect.Store(false)
-		m.tradeApi.Join()
-		logrus.Info("tradeApi finished")
-	}()
-	err = m.refreshSymbols()
-	return
-}
-
-func (m *CTPMonitor) connectTdApi() (err error) {
-	tdApi := ctp.TdCreateFtdcTraderApi("td")
-	auth := func() {
-		logrus.Info("tdSpi Auth")
-		tdApi.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: m.cfg.BrokerID, UserID: m.cfg.User, UserProductInfo: "", AuthCode: m.cfg.AuthCode, AppID: m.cfg.AppID}, 0)
-	}
-
-	login := func() {
-		logrus.Info("tdSpi login")
-		tdApi.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: m.cfg.User, BrokerID: m.cfg.BrokerID, Password: m.cfg.Password}, 0)
-	}
-	m.tdSpi.connectCallback = auth
-	m.tdSpi.authCallback = login
-	m.tdSpi.authFailCallback = func() {
-		go func() {
-			time.Sleep(time.Second * 10)
-			auth()
-		}()
-	}
-	m.tdSpi.loginFailCallback = func() {
-		go func() {
-			time.Sleep(time.Second * 10)
-			login()
-		}()
-	}
-
-	tdApi.RegisterSpi(m.tdSpi)
-	tdApi.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.TdServer))
-	tdApi.Init()
-	time.Sleep(time.Second * 3)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
-	err = m.tdSpi.WaitLogin(ctx)
+	m.tdSpi = NewTdSpi(m.cfg)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	err = m.tdSpi.Connect(ctx)
 	cancel()
 	if err != nil {
 		return
 	}
-	m.tradeApi = tdApi
-	return
-}
 
-func (m *CTPMonitor) connectMdApi() (err error) {
-	api := ctp.MdCreateFtdcMdApi("md", false, false)
-	login := func() {
-		logrus.Info("mdSpi onFrontendConnected: login")
-		api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: m.cfg.User, BrokerID: m.cfg.BrokerID, Password: m.cfg.Password}, 0)
-	}
-	watch := func() {
-		logrus.Info("mdSpi onLogin: watchAll")
-		err = m.refreshSymbols()
-		if err != nil {
-			logrus.Errorf("refresh Symbol failed: %s", err.Error())
-		}
-		m.watchAll()
-	}
-	m.mdSpi.connectCallback = login
-	m.mdSpi.loginFailCallback = func() {
-		go func() {
-			time.Sleep(time.Second * 10)
-			login()
-		}()
-	}
-	m.mdSpi.loginCallback = watch
-	api.RegisterFront(fmt.Sprintf("tcp://%s", m.cfg.MdServer))
-	api.RegisterSpi(m.mdSpi)
-	api.Init()
-	time.Sleep(time.Second * 2)
-	m.marketApi = api
-	return
-}
-
-func (m *CTPMonitor) refreshSymbols() (err error) {
-	m.mutex.Lock()
-	defer m.mutex.Unlock()
-	t := time.Now()
-	var needRefresh bool
-	if t.Sub(m.lastRefreshSymbol) > time.Hour*24 || t.Day() != m.lastRefreshSymbol.Day() {
-		needRefresh = true
-	}
-	if !needRefresh {
-		return
-	}
-	m.tradeApi.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-	err = m.tdSpi.WaitSymbols(ctx)
+	m.mdSpi, err = NewMdSpi(m.cfg)
 	if err != nil {
-		logrus.Error("ReqQryInstrument error:", err.Error())
-	}
-	symbols := m.tdSpi.GetSymbols()
-	if len(symbols) == 0 {
-		logrus.Error("refreshSymbols return empty, try again after 10s")
-		go func() {
-			time.Sleep(time.Second * 10)
-			m.refreshSymbols()
-		}()
 		return
 	}
-	if !m.symbolsNeedUpdate(symbols) {
+	m.mdSpi.loginCallback = m.watchAll
+	ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
+	err = m.mdSpi.Connect(ctx)
+	if err != nil {
 		return
 	}
-	m.lastRefreshSymbol = time.Now()
-	m.symbols = symbols
-	m.watchAll()
+	// go func() {
+	// 	defer m.isConnect.Store(false)
+	// 	m.marketApi.Join()
+	// 	logrus.Info("marketApi finished")
+	// }()
+
+	m.isConnect.Store(true)
+	// go func() {
+	// 	defer m.isConnect.Store(false)
+	// 	m.tradeApi.Join()
+	// 	logrus.Info("tradeApi finished")
+	// }()
+	// _, err = m.refreshSymbols()
 	return
 }
 
-func (m *CTPMonitor) symbolsNeedUpdate(symbols map[string]*ctp.CThostFtdcInstrumentField) bool {
-	if len(symbols) == 0 {
-		return false
-	}
-	if len(symbols) != len(m.symbols) {
-		return true
-	}
-	var ok bool
-	for k := range symbols {
-		_, ok = m.symbols[k]
-		if !ok {
-			return true
-		}
-	}
-	return false
-}
-
-func (m *CTPMonitor) watchAll() {
+func (m *CTPMonitor) watchAll(api *ctp.CThostFtdcMdApi) {
+	m.symbols = m.tdSpi.GetSymbols()
 	for k := range m.symbols {
 		logrus.Info("SubscribeMarketData:", k)
-		m.marketApi.SubscribeMarketData([]string{k})
+		api.SubscribeMarketData([]string{k})
 	}
 }
 

@@ -4,44 +4,54 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/ztrade/ctp"
+	"github.com/ztrade/ctpmonitor/config"
 )
 
 type TdSpi struct {
 	ctp.CThostFtdcTraderSpiBase
-	hasAuth           bool
-	hasLogin          bool
-	hasSymbols        bool
-	symbols           map[string]*ctp.CThostFtdcInstrumentField
-	connectCallback   func()
-	authCallback      func()
-	authFailCallback  func()
-	loginFailCallback func()
-	l                 *logrus.Entry
+	hasSymbols atomic.Bool
+	symbols    map[string]*ctp.CThostFtdcInstrumentField
+	l          *logrus.Entry
+
+	api *ctp.CThostFtdcTraderApi
+	cfg *config.Config
 }
 
-func NewTdSpi() *TdSpi {
+func NewTdSpi(cfg *config.Config) *TdSpi {
 	td := new(TdSpi)
+	td.cfg = cfg
 	td.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
 	td.l = logrus.WithField("module", "tdSpi")
 	return td
 }
+
+func (s *TdSpi) Connect(ctx context.Context) (err error) {
+	s.api = ctp.TdCreateFtdcTraderApi("td")
+	s.api.RegisterSpi(s)
+	s.api.RegisterFront(fmt.Sprintf("tcp://%s", s.cfg.TdServer))
+	s.api.Init()
+	err = s.WaitSymbols(ctx)
+	return
+}
+
 func (s *TdSpi) GetSymbols() (symbols map[string]*ctp.CThostFtdcInstrumentField) {
 	return s.symbols
 }
 
 func (s *TdSpi) OnFrontConnected() {
-	if s.connectCallback != nil {
-		s.connectCallback()
-	}
-	s.l.Info("TdSpi OnFrontConnected")
+	s.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
+	n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
+	s.l.Info("TdSpi OnFrontConnected, ReqAuthenticate:", n)
 }
 func (s *TdSpi) OnFrontDisconnected(nReason int) {
+	s.hasSymbols.Store(false)
 	s.l.Info("TdSpi OnFrontDisconnected")
-
 }
 
 func (s *TdSpi) WaitSymbols(ctx context.Context) (err error) {
@@ -51,22 +61,7 @@ Out:
 		case <-ctx.Done():
 			return errors.New("deadline")
 		default:
-			if s.hasSymbols {
-				break Out
-			}
-			time.Sleep(time.Millisecond)
-		}
-	}
-	return
-}
-func (s *TdSpi) WaitAuth(ctx context.Context) (err error) {
-Out:
-	for {
-		select {
-		case <-ctx.Done():
-			return errors.New("deadline")
-		default:
-			if s.hasAuth {
+			if s.hasSymbols.Load() {
 				break Out
 			}
 			time.Sleep(time.Millisecond)
@@ -79,28 +74,34 @@ func (s *TdSpi) OnRspAuthenticate(pRspAuthenticateField *ctp.CThostFtdcRspAuthen
 	buf, _ := json.Marshal(pRspAuthenticateField)
 	s.l.Info("OnRspAuthenticate", string(buf))
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		s.l.Errorf("OnRspAuthenticate error %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
-		if s.authFailCallback != nil {
-			s.authFailCallback()
-		}
+		s.l.Errorf("OnRspAuthenticate error %d %s, retry after 10s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		go func() {
+			time.Sleep(time.Second * 10)
+			n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
+			s.l.Info("OnRspAuthenticate fail, do ReqAuthenticate:", n)
+		}()
+
 		return
 	}
-	s.hasAuth = true
-	if s.authCallback != nil {
-		s.authCallback()
-	}
+	n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
+	s.l.Info("TdSpi OnRspAuthenticate, ReqUserLogin:", n)
 }
+
 func (s *TdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	buf, _ := json.Marshal(pRspUserLogin)
 	s.l.Info("OnRspUserLogin", string(buf))
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
-		s.l.Errorf("OnRspUserLogin error: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
-		if s.loginFailCallback != nil {
-			s.loginFailCallback()
-		}
+		s.l.Errorf("OnRspUserLogin error: %d %s, retry after 10s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		go func() {
+			time.Sleep(10 * time.Second)
+			n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
+			s.l.Info("OnRspUserLogin fail, do ReqUserLogin:", n)
+		}()
+
 		return
 	}
-	s.hasLogin = true
+	n := s.api.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
+	s.l.Info("TdSpi OnRspUserLogin, ReqQryInstrument:", n)
 }
 func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumentStatusField) {
 	// buf, _ := json.Marshal(pInstrumentStatus)
@@ -110,9 +111,10 @@ func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumen
 func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	defer func() {
 		if bIsLast {
-			s.hasSymbols = true
+			s.hasSymbols.Store(true)
 		}
 	}()
+	// s.l.Info("OnRspQryInstrument:", pInstrument)
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
 		s.l.Error("OnRspQryInstrument error", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 	}
@@ -126,18 +128,11 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 	s.symbols[pInstrument.InstrumentID] = pInstrument
 
 }
-func (s *TdSpi) WaitLogin(ctx context.Context) (err error) {
-Out:
-	for {
-		select {
-		case <-ctx.Done():
-			return errors.New("deadline")
-		default:
-			if s.hasLogin {
-				break Out
-			}
-			time.Sleep(time.Millisecond)
-		}
+func (s *TdSpi) Close() {
+	api := s.api
+	s.api = nil
+	if api != nil {
+		api.Release()
+		s.l.Info("release tradeApi success")
 	}
-	return
 }
