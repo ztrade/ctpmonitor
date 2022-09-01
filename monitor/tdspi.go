@@ -118,9 +118,16 @@ func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumen
 func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	defer func() {
 		if bIsLast {
-			s.hasSymbols.Store(true)
 			if len(s.symbolsCache) != 0 {
 				s.symbols = s.symbolsCache
+				s.hasSymbols.Store(true)
+			} else {
+				s.l.Errorf("OnRspQryInstrument return empty, retry after 10s")
+				go func() {
+					time.Sleep(10 * time.Second)
+					n := s.api.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
+					s.l.Info("TdSpi OnRspQryInstrument no symbols, ReqQryInstrument:", n)
+				}()
 			}
 		}
 	}()
