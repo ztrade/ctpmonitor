@@ -16,7 +16,8 @@ type Config struct {
 		Type string
 		Uri  string
 	}
-	Taos string
-	Http string
-	Grpc string
+	Taos   string
+	Http   string
+	Grpc   string
+	Filter string
 }

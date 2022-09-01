@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -131,7 +132,8 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 		s.l.Warn("pInstrument is null")
 		return
 	}
-	if pInstrument.ProductClass != '1' {
+	if s.cfg.Filter != "" && !strings.Contains(s.cfg.Filter, string(pInstrument.ProductClass)) {
+		s.l.Infof("ignore symbol by filter: %s,%s, filter: %s", pInstrument.InstrumentID, pInstrument.ProductClass, s.cfg.Filter)
 		return
 	}
 	s.symbolsCache[pInstrument.InstrumentID] = pInstrument
