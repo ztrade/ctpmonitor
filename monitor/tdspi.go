@@ -15,9 +15,10 @@ import (
 
 type TdSpi struct {
 	ctp.CThostFtdcTraderSpiBase
-	hasSymbols atomic.Bool
-	symbols    map[string]*ctp.CThostFtdcInstrumentField
-	l          *logrus.Entry
+	hasSymbols   atomic.Bool
+	symbols      map[string]*ctp.CThostFtdcInstrumentField
+	symbolsCache map[string]*ctp.CThostFtdcInstrumentField
+	l            *logrus.Entry
 
 	api *ctp.CThostFtdcTraderApi
 	cfg *config.Config
@@ -27,12 +28,13 @@ func NewTdSpi(cfg *config.Config) *TdSpi {
 	td := new(TdSpi)
 	td.cfg = cfg
 	td.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
+	td.symbolsCache = make(map[string]*ctp.CThostFtdcInstrumentField)
 	td.l = logrus.WithField("module", "tdSpi")
 	return td
 }
 
 func (s *TdSpi) Connect(ctx context.Context) (err error) {
-	s.api = ctp.TdCreateFtdcTraderApi("td")
+	s.api = ctp.TdCreateFtdcTraderApi("./td/")
 	s.api.RegisterSpi(s)
 	s.api.RegisterFront(fmt.Sprintf("tcp://%s", s.cfg.TdServer))
 	s.api.Init()
@@ -46,6 +48,7 @@ func (s *TdSpi) GetSymbols() (symbols map[string]*ctp.CThostFtdcInstrumentField)
 
 func (s *TdSpi) OnFrontConnected() {
 	s.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
+	s.symbolsCache = make(map[string]*ctp.CThostFtdcInstrumentField)
 	n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
 	s.l.Info("TdSpi OnFrontConnected, ReqAuthenticate:", n)
 }
@@ -115,6 +118,9 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 	defer func() {
 		if bIsLast {
 			s.hasSymbols.Store(true)
+			if len(s.symbolsCache) != 0 {
+				s.symbols = s.symbolsCache
+			}
 		}
 	}()
 	s.l.Info("OnRspQryInstrument:", pInstrument)
@@ -128,7 +134,7 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 	if pInstrument.ProductClass != '1' {
 		return
 	}
-	s.symbols[pInstrument.InstrumentID] = pInstrument
+	s.symbolsCache[pInstrument.InstrumentID] = pInstrument
 
 }
 

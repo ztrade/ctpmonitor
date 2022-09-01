@@ -62,7 +62,7 @@ func (m *CTPMonitor) reconnect() (err error) {
 		m.tdSpi = nil
 	}
 	m.tdSpi = NewTdSpi(m.cfg)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	err = m.tdSpi.Connect(ctx)
 	cancel()
 	if err != nil {
@@ -134,7 +134,6 @@ Out:
 				break
 			}
 		}
-		needConnect = true
 		if !needConnect {
 			logrus.Println("wait time")
 			time.Sleep(time.Minute)

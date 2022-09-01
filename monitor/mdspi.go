@@ -31,7 +31,7 @@ func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
 }
 
 func (s *mdSpi) Connect(ctx context.Context) (err error) {
-	s.api = ctp.MdCreateFtdcMdApi("md", false, false)
+	s.api = ctp.MdCreateFtdcMdApi("./md/", false, false)
 	s.api.RegisterFront(fmt.Sprintf("tcp://%s", s.cfg.MdServer))
 	s.api.RegisterSpi(s)
 	s.api.Init()
