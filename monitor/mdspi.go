@@ -54,10 +54,10 @@ func (s *mdSpi) OnHeartBeatWarning(nTimeLapse int) {
 func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	// logrus.Infof("%d isLast: %t login success: %s, user %s, time: %s, systemName: %s, frontID: %s, session: %d", nRequestID, bIsLast, pRspUserLogin.TradingDay, pRspUserLogin.UserID, pRspUserLogin.SystemName, pRspUserLogin.FrontID, pRspUserLogin.SessionID)
 
-	s.l.Infof("login: %d %s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+	s.l.Infof("login: %d %s %#v", pRspInfo.ErrorID, pRspInfo.ErrorMsg, s.loginCallback)
 	if pRspInfo.ErrorID == 0 {
 		if s.loginCallback != nil {
-			s.loginCallback(s.api)
+			go s.loginCallback(s.api)
 		}
 	} else {
 		s.l.Println("OnRspUserLogin fail, retry after 10s")

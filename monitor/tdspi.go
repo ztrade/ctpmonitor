@@ -48,7 +48,6 @@ func (s *TdSpi) GetSymbols() (symbols map[string]*ctp.CThostFtdcInstrumentField)
 }
 
 func (s *TdSpi) OnFrontConnected() {
-	s.symbols = make(map[string]*ctp.CThostFtdcInstrumentField)
 	s.symbolsCache = make(map[string]*ctp.CThostFtdcInstrumentField)
 	n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
 	s.l.Info("TdSpi OnFrontConnected, ReqAuthenticate:", n)

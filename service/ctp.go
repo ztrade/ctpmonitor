@@ -3,10 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"time"
 
 	"github.com/jinzhu/copier"
+	"github.com/sirupsen/logrus"
 	"github.com/ztrade/base/common"
 	"github.com/ztrade/ctpmonitor/config"
 	"github.com/ztrade/ctpmonitor/model"
@@ -41,7 +41,7 @@ func (s *CtpService) GetKline(ctx context.Context, req *pb.KlineReq) (resp *pb.K
 	if err != nil {
 		return
 	}
-	fmt.Println(tStart, tEnd, req.Bin)
+	logrus.Info("GetKline:", tStart, tEnd, req.Bin)
 	resp = &pb.KlineResp{}
 	kl := util.NewCTPKline()
 	var candle *trademodel.Candle
