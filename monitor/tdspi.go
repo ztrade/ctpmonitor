@@ -23,6 +23,8 @@ type TdSpi struct {
 
 	api *ctp.CThostFtdcTraderApi
 	cfg *config.Config
+
+	connectTime time.Time
 }
 
 func NewTdSpi(cfg *config.Config) *TdSpi {
@@ -51,6 +53,7 @@ func (s *TdSpi) OnFrontConnected() {
 	s.symbolsCache = make(map[string]*ctp.CThostFtdcInstrumentField)
 	n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
 	s.l.Info("TdSpi OnFrontConnected, ReqAuthenticate:", n)
+	s.connectTime = time.Now()
 }
 func (s *TdSpi) OnFrontDisconnected(nReason int) {
 	s.hasSymbols.Store(false)
@@ -78,8 +81,14 @@ func (s *TdSpi) OnRspAuthenticate(pRspAuthenticateField *ctp.CThostFtdcRspAuthen
 	s.l.Info("OnRspAuthenticate", string(buf))
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
 		s.l.Errorf("OnRspAuthenticate error %d %s, retry after 10s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		t := s.connectTime
 		go func() {
 			time.Sleep(time.Second * 10)
+			connTime := s.connectTime
+			if t != s.connectTime {
+				s.l.Warnf("connect time not match, OnRspAuthenticate ignore: %s, %s", t, connTime)
+				return
+			}
 			n := s.api.ReqAuthenticate(&ctp.CThostFtdcReqAuthenticateField{BrokerID: s.cfg.BrokerID, UserID: s.cfg.User, UserProductInfo: "", AuthCode: s.cfg.AuthCode, AppID: s.cfg.AppID}, 0)
 			s.l.Info("OnRspAuthenticate fail, do ReqAuthenticate:", n)
 		}()
@@ -95,8 +104,14 @@ func (s *TdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, p
 	s.l.Info("OnRspUserLogin", string(buf))
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
 		s.l.Errorf("OnRspUserLogin error: %d %s, retry after 10s", pRspInfo.ErrorID, pRspInfo.ErrorMsg)
+		t := s.connectTime
 		go func() {
 			time.Sleep(10 * time.Second)
+			connTime := s.connectTime
+			if t != s.connectTime {
+				s.l.Warnf("connect time not match, OnRspUserLogin ignore: %s, %s", t, connTime)
+				return
+			}
 			n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
 			s.l.Info("OnRspUserLogin fail, do ReqUserLogin:", n)
 		}()
@@ -115,6 +130,7 @@ func (s *TdSpi) OnRtnInstrumentStatus(pInstrumentStatus *ctp.CThostFtdcInstrumen
 }
 
 func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
+	// maybe check nRequestID?
 	defer func() {
 		if bIsLast {
 			if len(s.symbolsCache) != 0 {
@@ -122,8 +138,14 @@ func (s *TdSpi) OnRspQryInstrument(pInstrument *ctp.CThostFtdcInstrumentField, p
 				s.hasSymbols.Store(true)
 			} else {
 				s.l.Errorf("OnRspQryInstrument return empty, retry after 10s")
+				t := s.connectTime
 				go func() {
 					time.Sleep(10 * time.Second)
+					connTime := s.connectTime
+					if t != s.connectTime {
+						s.l.Warnf("connect time not match, OnRspQryInstrument ignore: %s, %s", t, connTime)
+						return
+					}
 					n := s.api.ReqQryInstrument(&ctp.CThostFtdcQryInstrumentField{}, 1)
 					s.l.Info("TdSpi OnRspQryInstrument no symbols, ReqQryInstrument:", n)
 				}()

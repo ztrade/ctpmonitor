@@ -20,6 +20,7 @@ type mdSpi struct {
 	cfg *config.Config
 
 	loginCallback func(*ctp.CThostFtdcMdApi)
+	connectTime   time.Time
 }
 
 func NewMdSpi(cfg *config.Config) (spi *mdSpi, err error) {
@@ -41,6 +42,7 @@ func (s *mdSpi) Connect(ctx context.Context) (err error) {
 func (s *mdSpi) OnFrontConnected() {
 	n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
 	s.l.Println("OnFrontConnected:", n)
+	s.connectTime = time.Now()
 }
 
 func (s *mdSpi) OnFrontDisconnected(nReason int) {
@@ -61,8 +63,14 @@ func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, p
 		}
 	} else {
 		s.l.Println("OnRspUserLogin fail, retry after 10s")
+		t := s.connectTime
 		go func() {
 			time.Sleep(10 * time.Second)
+			connTime := s.connectTime
+			if t != s.connectTime {
+				s.l.Warnf("connect time not match, OnRspUserLogin ignore: %s, %s", t, connTime)
+				return
+			}
 			n := s.api.ReqUserLogin(&ctp.CThostFtdcReqUserLoginField{UserID: s.cfg.User, BrokerID: s.cfg.BrokerID, Password: s.cfg.Password}, 0)
 			s.l.Info("OnRspUserLogin fail, do ReqUserLogin:", n)
 		}()
