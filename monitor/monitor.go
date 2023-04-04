@@ -77,6 +77,7 @@ func (m *CTPMonitor) reconnect() (err error) {
 	}
 	m.mdSpi.loginCallback = m.watchAll
 	ctx, cancel = context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
 	err = m.mdSpi.Connect(ctx)
 	logrus.Info("connect mdspi", err)
 	if err != nil {
@@ -99,12 +100,14 @@ func (m *CTPMonitor) reconnect() (err error) {
 }
 
 func (m *CTPMonitor) watchAll(api *ctp.CThostFtdcMdApi) {
-	logrus.Info("watch all")
+	logrus.Info("watch all", len(m.symbols))
 	m.symbols = m.tdSpi.GetSymbols()
+	var symbols []string
 	for k := range m.symbols {
-		logrus.Info("SubscribeMarketData:", k)
-		api.SubscribeMarketData([]string{k})
+		symbols = append(symbols, k)
 	}
+	api.SubscribeMarketData(symbols)
+	logrus.Info("watchAll finished:", len(symbols))
 }
 
 func (m *CTPMonitor) loop() {
