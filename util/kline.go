@@ -11,10 +11,12 @@ type CTPKline struct {
 	cur          *trademodel.Candle
 	prevVolume   int64
 	prevTurnover float64
+	bFirst       bool
 }
 
 func NewCTPKline() *CTPKline {
 	k := new(CTPKline)
+	k.bFirst = true
 	return k
 }
 
@@ -43,7 +45,12 @@ func (k *CTPKline) Update(data *model.MarketData) (candle *trademodel.Candle) {
 	volume := data.Volume - int(k.prevVolume)
 	turnover := data.Turnover - k.prevTurnover
 	if t.Sub(k.cur.Time()) >= time.Minute {
-		candle = k.cur
+		// 第一根K线可能不完整
+		if k.bFirst {
+			k.bFirst = false
+		} else {
+			candle = k.cur
+		}
 		k.cur = &trademodel.Candle{
 			Start:    tStart,
 			Open:     price,
