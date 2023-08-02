@@ -129,6 +129,9 @@ func (db *DB) writeOnceToDB(tbl string, datas []*MarketData) (err error) {
 }
 
 func (db *DB) loop(tbl string, ch chan *MarketData) {
+	tbl = strings.Replace(tbl, "-", "_", -1)
+	tbl = strings.Replace(tbl, " ", "_", -1)
+	tbl = strings.Replace(tbl, "&", "_", -1)
 	defer db.wg.Done()
 	var err error
 	batch := make([]*MarketData, db.writeOnce)
