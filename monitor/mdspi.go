@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -62,6 +63,7 @@ func (s *mdSpi) OnRspUserLogin(pRspUserLogin *ctp.CThostFtdcRspUserLoginField, p
 			go s.loginCallback(s.api)
 		}
 	} else {
+		ctpErrCounter.WithLabelValues("login_fail", strconv.Itoa(pRspInfo.ErrorID)).Add(1)
 		s.l.Println("OnRspUserLogin fail, retry after 10s")
 		t := s.connectTime
 		go func() {
@@ -95,6 +97,7 @@ func (s *mdSpi) OnRspError(pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int,
 func (s *mdSpi) OnRspSubMarketData(pSpecificInstrument *ctp.CThostFtdcSpecificInstrumentField, pRspInfo *ctp.CThostFtdcRspInfoField, nRequestID int, bIsLast bool) {
 	s.l.Info("onSubMarketData:", pSpecificInstrument.InstrumentID)
 	if pRspInfo != nil && pRspInfo.ErrorID != 0 {
+		ctpErrCounter.WithLabelValues("OnRspSubMarketData", strconv.Itoa(pRspInfo.ErrorID)).Add(1)
 		s.l.Warnf("%d onSubMarketData: %t: ErrorID: %d ErrorMsg:%s", nRequestID, bIsLast, pRspInfo.ErrorID, pRspInfo.ErrorMsg)
 	}
 }
@@ -115,6 +118,8 @@ func (s *mdSpi) OnRtnDepthMarketData(pDepthMarketData *ctp.CThostFtdcDepthMarket
 		s.l.Error("marketdata is nil")
 		return
 	}
+	marketDataCounter.WithLabelValues(pDepthMarketData.ExchangeID, pDepthMarketData.InstrumentID).Add(1)
+
 	// buf, _ := json.Marshal(pDepthMarketData)
 	// fmt.Println(string(buf))
 	err := s.db.AddMarketData(pDepthMarketData)

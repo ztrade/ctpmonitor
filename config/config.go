@@ -20,4 +20,5 @@ type Config struct {
 	Http   string
 	Grpc   string
 	Filter string
+	Metric string
 }

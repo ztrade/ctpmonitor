@@ -1,11 +1,9 @@
-/*
-Copyright © 2022 NAME HERE <EMAIL ADDRESS>
-*/
 package cmd
 
 import (
 	"fmt"
 	"log"
+	nhttp "net/http"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -16,6 +14,7 @@ import (
 	"github.com/go-kratos/kratos/v2/transport"
 	"github.com/go-kratos/kratos/v2/transport/grpc"
 	"github.com/go-kratos/kratos/v2/transport/http"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -120,6 +119,10 @@ func runMonitor(cmd *cobra.Command, args []string) {
 	if err != nil {
 		fmt.Println("error:", err.Error())
 		return
+	}
+	if config.MainConfig.Metric != "" {
+		nhttp.Handle("/metrics", promhttp.Handler())
+		go nhttp.ListenAndServe(config.MainConfig.Metric, nil)
 	}
 	cfg := &config.MainConfig
 	m := monitor.NewCTPMonitor(cfg)
